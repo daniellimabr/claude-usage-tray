@@ -74,7 +74,11 @@ class Conversation:
     @property
     def sort_key(self):
         # working first, then larger context, then most recently active
-        return (self.status != "busy", -(self.percent or 0), -self.status_since)
+        return (self.idle, -(self.percent or 0), -self.status_since)
+
+    @property
+    def idle(self) -> bool:
+        return self.status == "idle"
 
     @property
     def percent(self) -> float | None:
@@ -384,16 +388,22 @@ class DetailsPanel:
         if error:
             self._label(body, f"⚠ {error}", size=9, pady=(self._px(6), 0))
 
-        self._label(body, "ACTIVE CONVERSATIONS", muted=True, size=8, pady=(self._px(16), 0))
-        if not convs:
-            self._label(body, "none", muted=True, pady=(self._px(6), 0))
-        for c in convs:
-            status = STATUS_LABELS.get(c.status, c.status)
-            if c.status == "idle" and c.status_since:
-                status += f" {fmt_duration(time.time() - c.status_since)}"
-            ctx = (f"{fmt_tokens(c.used)} / {fmt_tokens(c.window)}  ({c.percent:.0f}%)"
-                   if c.used is not None else "no data yet")
-            self._row(body, shorten(c.title, 34), ctx, c.percent, f"{c.project} · {status}")
+        for heading, group in (("WORKING", [c for c in convs if not c.idle]),
+                               ("IDLE", [c for c in convs if c.idle])):
+            self._label(body, f"{heading} ({len(group)})", muted=True, size=8,
+                        pady=(self._px(16), 0))
+            if not group:
+                self._label(body, "none", muted=True, pady=(self._px(6), 0))
+            for c in group:
+                if c.idle and c.status_since:
+                    sub = f"{c.project} · idle for {fmt_duration(time.time() - c.status_since)}"
+                elif c.status in ("busy", "idle"):
+                    sub = c.project
+                else:
+                    sub = f"{c.project} · {STATUS_LABELS.get(c.status, c.status)}"
+                ctx = (f"{fmt_tokens(c.used)} / {fmt_tokens(c.window)}  ({c.percent:.0f}%)"
+                       if c.used is not None else "no data yet")
+                self._row(body, shorten(c.title, 34), ctx, c.percent, sub)
 
         self.root.update_idletasks()
         w, h = self.root.winfo_reqwidth(), self.root.winfo_reqheight()
@@ -499,8 +509,10 @@ class TrayApp:
 
         parts = [f"{l.label.split(' ')[0]} {l.percent:.0f}%" for l in limits]
         ctx = [c.percent for c in convs if c.percent is not None]
-        parts.append(f"{len(convs)} conversation(s), max context {max(ctx):.0f}%" if ctx
-                     else f"{len(convs)} conversation(s)")
+        working = sum(not c.idle for c in convs)
+        parts.append(f"{working} working, {len(convs) - working} idle")
+        if ctx:
+            parts.append(f"max context {max(ctx):.0f}%")
         if error:
             parts.append(error)
         self.icon.title = ("Claude Code: " + " · ".join(parts))[:127]

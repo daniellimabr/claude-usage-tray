@@ -11,7 +11,7 @@ A small Windows system tray app that shows your **Claude plan usage** (the same 
   <img src="docs/icons.png" alt="Tray icon in green, amber and red" height="32">
 
 - **Hover:** a one-line summary.
-- **Left click:** a details panel with session and weekly limits, their reset times, and each open conversation with its title, project, status and context usage. Conversations are sorted with working ones first, then by context usage (largest first), then by most recent activity.
+- **Left click:** a details panel with session and weekly limits, their reset times, and your open conversations with their title, project and context usage. Working and idle conversations are in separate groups, sorted by context usage (largest first) and then by most recent activity. Idle ones show how long they've been idle.
 - **Right click:** Details, Refresh now, Quit.
 - **Notifications:** a Windows notification when a plan limit crosses 80% and 95%.
 
