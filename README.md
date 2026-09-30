@@ -11,7 +11,7 @@ A small Windows system tray app that shows your **Claude plan usage** (the same 
   <img src="docs/icons.png" alt="Tray icon in green, amber and red" height="32">
 
 - **Hover:** a one-line summary.
-- **Left click:** a details panel with session and weekly limits, their reset times, and each open conversation with its title, project, status and context usage.
+- **Left click:** a details panel with session and weekly limits, their reset times, and each open conversation with its title, project, status and context usage. Conversations are sorted with working ones first, then by context usage (largest first), then by most recent activity.
 - **Right click:** Details, Refresh now, Quit.
 - **Notifications:** a Windows notification when a plan limit crosses 80% and 95%.
 
@@ -58,6 +58,13 @@ Everything is read locally, except one HTTPS call for plan usage.
 - Plan usage: every 5 minutes.
 - "Refresh now": re-queries plan usage at most once a minute.
 - When the server rate-limits (HTTP 429), the app waits the `Retry-After` time.
+
+## Authentication
+
+The app never asks you to sign in and has no login of its own. It reuses the login Claude Code already stored on your machine.
+
+- **Signed in to Claude Code with a subscription (`/login`):** plan usage works right away.
+- **Not signed in, or using an API key:** the panel says so and still shows context for your open conversations. Once you sign in to Claude Code, plan usage appears on the next refresh without restarting the app.
 
 ## Privacy and security
 

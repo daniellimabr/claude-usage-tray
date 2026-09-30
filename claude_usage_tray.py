@@ -69,6 +69,12 @@ class Conversation:
     status: str
     used: int | None
     window: int
+    status_since: float = 0.0  # epoch seconds of the last status change
+
+    @property
+    def sort_key(self):
+        # working first, then larger context, then most recently active
+        return (self.status != "busy", -(self.percent or 0), -self.status_since)
 
     @property
     def percent(self) -> float | None:
@@ -167,10 +173,11 @@ class ConversationReader:
                     status=meta.get("status", ""),
                     used=used,
                     window=context_window(model),
+                    status_since=(meta.get("statusUpdatedAt") or meta.get("updatedAt") or 0) / 1000,
                 ))
             except Exception:
                 log.exception("failed reading %s", meta_file.name)
-        return sorted(result, key=lambda c: c.percent or 0, reverse=True)
+        return sorted(result, key=lambda c: c.sort_key)
 
 
 def parse_time(value: str | None) -> datetime | None:
@@ -214,6 +221,15 @@ def fetch_limits() -> list[Limit]:
 
 def fmt_tokens(n: int) -> str:
     return f"{n / 1_000_000:.3g}M" if n >= 1_000_000 else f"{round(n / 1000)}k"
+
+
+def fmt_duration(seconds: float) -> str:
+    minutes = int(max(0, seconds) // 60)
+    if minutes < 1:
+        return "<1m"
+    if minutes < 60:
+        return f"{minutes}m"
+    return f"{minutes // 60}h{minutes % 60:02d}"
 
 
 def fmt_reset(when: datetime | None) -> str:
@@ -337,7 +353,7 @@ class DetailsPanel:
     def _label(self, parent, text: str, *, bold=False, muted=False, size=9, **pack) -> None:
         tk.Label(parent, text=text, bg=self.BG, fg=self.MUTED if muted else self.FG,
                  font=("Segoe UI", size, "bold" if bold else "normal"),
-                 anchor="w", justify="left").pack(fill="x", **pack)
+                 anchor="w", justify="left", wraplength=self._px(340)).pack(fill="x", **pack)
 
     def _row(self, parent, left: str, right: str, pct: float | None, sub: str = "") -> None:
         row = tk.Frame(parent, bg=self.BG)
@@ -373,6 +389,8 @@ class DetailsPanel:
             self._label(body, "none", muted=True, pady=(self._px(6), 0))
         for c in convs:
             status = STATUS_LABELS.get(c.status, c.status)
+            if c.status == "idle" and c.status_since:
+                status += f" {fmt_duration(time.time() - c.status_since)}"
             ctx = (f"{fmt_tokens(c.used)} / {fmt_tokens(c.window)}  ({c.percent:.0f}%)"
                    if c.used is not None else "no data yet")
             self._row(body, shorten(c.title, 34), ctx, c.percent, f"{c.project} · {status}")
@@ -429,8 +447,11 @@ class TrayApp:
             else:
                 error = f"HTTP error {e.code}"
             log.warning("usage: HTTP %s, next try in %.0fs", e.code, retry_in)
+        except (FileNotFoundError, KeyError):
+            limits, error = [], "no Claude subscription login found: sign in with /login in Claude Code"
+            log.warning("usage: %s", error)
         except Exception as e:
-            limits, error = [], "no connection/credentials"
+            limits, error = [], "no connection"
             log.exception("usage: %s", e)
         with self.lock:
             if not error or not self.limits:
