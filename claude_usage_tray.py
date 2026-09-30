@@ -41,6 +41,8 @@ USAGE_MIN_INTERVAL_S = 60  # floor even for "Refresh now"
 TAIL_BYTES = 512 * 1024
 WARN_PCT, CRIT_PCT = 70, 90
 NOTIFY_THRESHOLDS = (80, 95)
+IDLE_HIDE_AFTER_S = 24 * 3600  # idle longer than this is only counted, not listed
+MAX_IDLE_ROWS = 8  # keeps the panel within the screen
 
 LIMIT_LABELS = {"session": "Session (5h)", "weekly_all": "Weekly"}
 STATUS_LABELS = {"busy": "working", "idle": "idle"}
@@ -372,7 +374,7 @@ class DetailsPanel:
             self._label(row, sub, muted=True)
         self._bar(row, pct)
 
-    def _build(self) -> None:
+    def _build(self, max_idle_rows: int = MAX_IDLE_ROWS) -> None:
         limits, convs, error, updated = self.snapshot()
         for child in self.root.winfo_children():
             child.destroy()
@@ -388,11 +390,21 @@ class DetailsPanel:
         if error:
             self._label(body, f"⚠ {error}", size=9, pady=(self._px(6), 0))
 
+        now = time.time()
+        idle = [c for c in convs if c.idle]
+        recent_idle = [c for c in idle if now - c.status_since < IDLE_HIDE_AFTER_S]
+        notes = {"WORKING": [], "IDLE": []}
+        if len(recent_idle) > max_idle_rows:
+            notes["IDLE"].append(f"+{len(recent_idle) - max_idle_rows} more")
+        if len(idle) > len(recent_idle):
+            notes["IDLE"].append(f"+{len(idle) - len(recent_idle)} idle for more than 24h")
+
         for heading, group in (("WORKING", [c for c in convs if not c.idle]),
-                               ("IDLE", [c for c in convs if c.idle])):
-            self._label(body, f"{heading} ({len(group)})", muted=True, size=8,
+                               ("IDLE", recent_idle[:max_idle_rows])):
+            count = len(group) if heading == "WORKING" else len(idle)
+            self._label(body, f"{heading} ({count})", muted=True, size=8,
                         pady=(self._px(16), 0))
-            if not group:
+            if not group and not notes[heading]:
                 self._label(body, "none", muted=True, pady=(self._px(6), 0))
             for c in group:
                 if c.idle and c.status_since:
@@ -404,12 +416,17 @@ class DetailsPanel:
                 ctx = (f"{fmt_tokens(c.used)} / {fmt_tokens(c.window)}  ({c.percent:.0f}%)"
                        if c.used is not None else "no data yet")
                 self._row(body, shorten(c.title, 34), ctx, c.percent, sub)
+            for note in notes[heading]:
+                self._label(body, note, muted=True, pady=(self._px(8), 0))
 
         self.root.update_idletasks()
         w, h = self.root.winfo_reqwidth(), self.root.winfo_reqheight()
-        _, _, right, bottom = work_area()
+        _, top, right, bottom = work_area()
         margin = self._px(12)
-        self.root.geometry(f"{w}x{h}+{right - w - margin}+{bottom - h - margin}")
+        if h > bottom - top - 2 * margin and max_idle_rows > 0 and len(recent_idle) > 0:
+            return self._build(min(max_idle_rows, len(recent_idle)) - 1)  # too tall: fewer idle rows
+        y = max(top + margin, bottom - h - margin)
+        self.root.geometry(f"{w}x{h}+{right - w - margin}+{y}")
 
 
 class TrayApp:
